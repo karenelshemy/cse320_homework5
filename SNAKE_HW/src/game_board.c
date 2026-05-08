@@ -5,7 +5,7 @@
 
 int board_init(game_board_t *board, int size, int max_snakes, unsigned int seed) {
 	// Checks if provided board is NULL, provided size is invalid, or provided maximum snakes is invalid
-	if (board == NULL || size < 10 || size > 50 || max_snakes < 1 || max_snakes > 8) {
+	if (board == NULL || size < BOARD_SIZE_MIN || size > BOARD_SIZE_MAX || max_snakes < MAX_PLAYERS_MIN || max_snakes > MAX_PLAYERS_MAX) {
 		return -1;
 	}
 
