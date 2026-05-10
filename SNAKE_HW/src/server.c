@@ -2,11 +2,27 @@
 #include "debug.h"
 #include "global.h"
 #include "protocol.h"
+#include "sigint_handler.h"
 #include <sys/socket.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
+
+server_t *server = NULL;
+
+// Signal handler for SIGINT
+void sigint_handler(int s) {
+	if (server != NULL) {
+		// Sets server running to 0
+		server->running = 0;
+
+		// Closes listening socket
+		if (server->listen_fd != -1) {
+			close(server->listen_fd);
+		}
+	}
+}
 
 int server_init(server_t *server, int port, int board_size, int max_snakes, unsigned int seed) {
 	// Checks if provided pointer to server state is NULL
