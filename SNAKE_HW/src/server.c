@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <stdbool.h>
 
 server_t *server = NULL;
 
@@ -20,6 +21,7 @@ void sigint_handler(int s) {
 		// Closes listening socket
 		if (server->listen_fd != -1) {
 			close(server->listen_fd);
+			server->listen_fd = -1;
 		}
 	}
 }
@@ -41,6 +43,7 @@ int server_init(server_t *server, int port, int board_size, int max_snakes, unsi
 	int opt = 1;
 	if (setsockopt(server->listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
 		close(server->listen_fd);
+		server->listen_fd = -1;
 		return -1;
 	}
 
@@ -53,12 +56,14 @@ int server_init(server_t *server, int port, int board_size, int max_snakes, unsi
 	// Binds to specified port
 	if (bind(server->listen_fd, (struct sockaddr *)&address, sizeof(address)) == -1) {
 		close(server->listen_fd);
+		server->listen_fd = -1;
 		return -1;
 	}
 
 	// Listens for connections
 	if (listen(server->listen_fd, max_snakes) == -1) {
 		close(server->listen_fd);
+		server->listen_fd = -1;
 		return -1;
 	}
 
@@ -72,6 +77,7 @@ int server_init(server_t *server, int port, int board_size, int max_snakes, unsi
 	int result = board_init(&server->board, board_size, max_snakes, seed);
 	if (result == -1) {
 		close(server->listen_fd);
+		server->listen_fd = -1;
 		return -1;
 	}
 
@@ -79,6 +85,7 @@ int server_init(server_t *server, int port, int board_size, int max_snakes, unsi
 	if (pthread_mutex_init(&server->board_mutex, NULL) != 0) {
 		board_free(&server->board);
 		close(server->listen_fd);
+		server->listen_fd = -1;
 		return -1;
 	}
 
@@ -134,8 +141,10 @@ void *server_game_loop(void *arg) {
 		// Iterates through all players and if the client's snake is dead, sends a dead message to that client
 		for (int i = 0; i < MAX_PLAYERS; i++) {
 			if (dead_snakes[i] > 0) {
-				if (fds_clients[i] != -1) {
-					send_all(fds_clients[i], dead_buf[i], dead_snakes[i]);
+				for (int j = 0; j < MAX_PLAYERS; j++) {
+					if (server->client_snake_ids[j] == i && fds_clients[j] != -1) {
+						send_all(fds_clients[j], dead_buf[i], dead_snakes[i]);
+					}
 				}
 			}
 		}
@@ -202,6 +211,34 @@ void *server_client_handler(void *arg) {
 	// Locks mutex
 	pthread_mutex_lock(&client_handler->server->board_mutex);
 
+	// Computes number of players currently in game
+	int player_count = 0;
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (client_handler->server->client_fds[i] != -1) {
+			player_count += 1;
+		}
+	}
+
+	// Checks if number of players is already at the maximum number of players
+	if (client_handler->server->board.max_snakes <= player_count) {
+		// Serializes an error message saying board is full
+		uint8_t error_buf[2];
+		int bytes = protocol_serialize_error(error_buf, sizeof(error_buf), ERR_GAME_FULL);
+
+		// Unlocks mutex
+		pthread_mutex_unlock(&client_handler->server->board_mutex);
+
+		// Sends error message 
+		if (bytes > 0) {
+			send_all(client_handler->client_fd, error_buf, bytes);
+		}
+
+		// Closes socket and frees argument struct
+		close(client_handler->client_fd);
+		free(client_handler);
+		return NULL;
+	}
+
 	int out_id;
 	// Checks if adding player's snake to game board fails
 	if (board_add_snake(&client_handler->server->board, &out_id) < 0) {
@@ -228,9 +265,29 @@ void *server_client_handler(void *arg) {
 	int bytes_num = protocol_serialize_welcome(welcome_buf, sizeof(welcome_buf), out_id, client_handler->server->board.size, client_handler->server->board.max_snakes);
 
 	// Registers client fd and snake id
-	client_handler->server->client_fds[out_id] = client_handler->client_fd;
-	client_handler->server->client_snake_ids[out_id] = out_id;
+	bool available_slot_index = false;
+	int available_index = -1;
+	for (int i = 0; i < MAX_PLAYERS; i++) {
+		if (client_handler->server->client_fds[i] == -1) {
+			available_slot_index = true;
+			client_handler->server->client_fds[i] = client_handler->client_fd;
+			client_handler->server->client_snake_ids[i] = out_id;
+			available_index = i;
+			break;
+		}
+	}
 
+	// Checks if there is no available slot index for new snake
+	if (available_slot_index == false) {
+		// Unlocks mutex
+		pthread_mutex_unlock(&client_handler->server->board_mutex);
+		
+		// Closes socket and frees argument struct
+		close(client_handler->client_fd);
+		free(client_handler);
+		return NULL;
+	}
+	
 	// Unlocks mutex
 	pthread_mutex_unlock(&client_handler->server->board_mutex);
 
@@ -264,9 +321,11 @@ void *server_client_handler(void *arg) {
 			// Locks mutex
 			pthread_mutex_lock(&client_handler->server->board_mutex);
 
+			int player_id = client_handler->server->client_snake_ids[available_index];
+
 			// Updates player's direction
-			if (client_handler->server->board.snakes[out_id].alive == 1) {
-				snake_set_direction(&client_handler->server->board.snakes[out_id], (direction_t) payload);
+			if (client_handler->server->board.snakes[player_id].alive == 1) {
+				snake_set_direction(&client_handler->server->board.snakes[player_id], (direction_t) payload);
 			}
 
 			// Unlocks mutex
@@ -288,12 +347,14 @@ void *server_client_handler(void *arg) {
 	// Locks mutex
 	pthread_mutex_lock(&client_handler->server->board_mutex);
 
+	int player_id = client_handler->server->client_snake_ids[available_index];
+
 	// Removes player's snake from game board
-	board_remove_snake(&client_handler->server->board, out_id);
+	board_remove_snake(&client_handler->server->board, player_id);
 
 	// Clears entries to -1
-	client_handler->server->client_fds[out_id] = -1;
-	client_handler->server->client_snake_ids[out_id] = -1;
+	client_handler->server->client_fds[available_index] = -1;
+	client_handler->server->client_snake_ids[available_index] = -1;
 
 	// Unlocks mutex
 	pthread_mutex_unlock(&client_handler->server->board_mutex);
