@@ -11,7 +11,7 @@
 /* ---------------------------------------------------------------------------
  * Game constants
  * --------------------------------------------------------------------------- */
-#define TICK_INTERVAL_MS    2000      /* Milliseconds between game ticks */
+#define TICK_INTERVAL_MS    100      /* Milliseconds between game ticks */
 
 #define BOARD_SIZE_MIN      10
 #define BOARD_SIZE_MAX      50
