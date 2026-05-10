@@ -110,6 +110,7 @@ void *server_game_loop(void *arg) {
 		int dead_snakes[MAX_PLAYERS];
 		uint8_t buffer[GAME_STATE_BUF_SIZE];
 		uint8_t dead_buf[MAX_PLAYERS][2];
+		snake_t snakes_after_advance[MAX_PLAYERS];
 
 		// Locks mutex
 		pthread_mutex_lock(&server->board_mutex);
@@ -131,6 +132,11 @@ void *server_game_loop(void *arg) {
 			}
 		}
 
+		// Iterates through all players and saves snake's fields
+		for (int i = 0; i < MAX_PLAYERS; i++) {
+			snakes_after_advance[i] = server->board.snakes[i];
+		}
+
 		// Serializes game state 
 		int byte_count = protocol_serialize_game_state(buffer, sizeof(buffer), &server->board);
 
@@ -149,7 +155,7 @@ void *server_game_loop(void *arg) {
 		// Broadcasts serialized game state to all connected clients with valid fds
 		if (byte_count > 0) {
 			for (int i = 0; i < MAX_PLAYERS; i++) {
-				if (fds_clients[i] != -1) {
+				if (fds_clients[i] != -1 && snakes_after_advance[i].alive == 1) {
 					send_all(fds_clients[i], buffer, byte_count);
 				}
 			} 

@@ -145,7 +145,8 @@ int board_add_snake(game_board_t *board, int *out_id) {
 	}
 
 	// Calculates starting position based on the snake's id
-	int x, y;
+	int x = 0;
+	int y = 0;
 	if ((snake_id % 4) == 0) {
 		x = board->size / 4;
 		y = board->size / 4;
