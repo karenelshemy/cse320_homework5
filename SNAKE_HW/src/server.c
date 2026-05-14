@@ -101,7 +101,14 @@ void *server_game_loop(void *arg) {
 	server_t *server = (server_t *)arg;
 
 	// Loops until server->running is set to 0
-	while (server->running == 1) {
+	while (1) {
+		pthread_mutex_lock(&server->board_mutex);
+		if (server->running == 0) {
+			pthread_mutex_unlock(&server->board_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&server->board_mutex);
+
 		// Sleeps 
 		usleep(TICK_INTERVAL_MS * 1000);
 
@@ -252,7 +259,14 @@ void *server_client_handler(void *arg) {
 	}
 
 	// Iterates until server stops running, client leaves or client disconnects
-	while (client_handler->server->running == 1) {
+	while (1) {
+		pthread_mutex_lock(&server->board_mutex);
+		if (client_handler->server->running == 0) {
+			pthread_mutex_unlock(&server->board_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&server->board_mutex);
+		
 		// Reads 2 byte messages from client socket
 		uint8_t recv_buff[2];
 		if (recv_exact(client_handler->client_fd, recv_buff, sizeof(recv_buff)) < 0) {
@@ -331,7 +345,14 @@ int server_start(server_t *server) {
 	// Detaches game loop thread
 	pthread_detach(game_loop_thread);
 	// Loops until server->running is 0
-	while (server->running == 1) {
+	while (1) {
+		pthread_mutex_lock(&server->board_mutex);
+		if (server->running == 0) {
+			pthread_mutex_unlock(&server->board_mutex);
+			break;
+		}
+		pthread_mutex_unlock(&server->board_mutex);
+
 		// Accepts new client connection
 		int fd = accept(server->listen_fd, NULL, NULL);
 		if (fd == -1) {
