@@ -102,11 +102,14 @@ void *server_game_loop(void *arg) {
 
 	// Loops until server->running is set to 0
 	while (1) {
+		// Locks mutex
 		pthread_mutex_lock(&server->board_mutex);
+		// Checks if server->running is set to 0 and if so, unlocks mutex and breaks out of loop
 		if (server->running == 0) {
 			pthread_mutex_unlock(&server->board_mutex);
 			break;
 		}
+		// Unlocks mutex
 		pthread_mutex_unlock(&server->board_mutex);
 
 		// Sleeps 
@@ -260,13 +263,16 @@ void *server_client_handler(void *arg) {
 
 	// Iterates until server stops running, client leaves or client disconnects
 	while (1) {
-		pthread_mutex_lock(&server->board_mutex);
+		// Locks mutex
+		pthread_mutex_lock(&client_handler->server->board_mutex);
+		// Checks if server->running is set to 0 and if so, unlocks mutex and breaks out of loop
 		if (client_handler->server->running == 0) {
-			pthread_mutex_unlock(&server->board_mutex);
+			pthread_mutex_unlock(&client_handler->server->board_mutex);
 			break;
 		}
-		pthread_mutex_unlock(&server->board_mutex);
-		
+		// Unlocks mutex
+		pthread_mutex_unlock(&client_handler->server->board_mutex);
+
 		// Reads 2 byte messages from client socket
 		uint8_t recv_buff[2];
 		if (recv_exact(client_handler->client_fd, recv_buff, sizeof(recv_buff)) < 0) {
@@ -346,11 +352,14 @@ int server_start(server_t *server) {
 	pthread_detach(game_loop_thread);
 	// Loops until server->running is 0
 	while (1) {
+		// Locks mutex
 		pthread_mutex_lock(&server->board_mutex);
+		// Checks if server->running is set to 0 and if so, unlocks mutex and breaks out of loop
 		if (server->running == 0) {
 			pthread_mutex_unlock(&server->board_mutex);
 			break;
 		}
+		// Unlocks mutex
 		pthread_mutex_unlock(&server->board_mutex);
 
 		// Accepts new client connection
